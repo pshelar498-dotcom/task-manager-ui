@@ -68,3 +68,41 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+           # ---------- Job 3: deploy to staging (update the config repo) ----------
+  deploy-staging:
+    name: Deploy to staging
+    needs: build-and-push                    # only after the new image is pushed (skipped for PRs)
+    runs-on: ubuntu-latest
+    concurrency: deploy-staging              # never run two deployments at the same time
+
+    steps:
+      - name: Check out the config repo
+        uses: actions/checkout@v5
+        with:
+          repository: pshelar498-dotcom/task-manager-config
+          token: ${{ secrets.CONFIG_REPO_TOKEN }}
+          path: config
+
+      - name: Set the new image tag
+        working-directory: config/staging
+        run: |
+          TAG="sha-${GITHUB_SHA::7}"
+          IMAGE="ghcr.io/pshelar498-dotcom/task-manager-ui"
+          # change ONLY the newTag line right after this image's name (the API has its own tag)
+          sed -i "\|name: ${IMAGE}\$|{n;s|newTag: .*|newTag: ${TAG}|}" kustomization.yaml
+          echo "New image tag: ${TAG}"
+          cat kustomization.yaml
+
+      - name: Commit and push to the config repo
+        working-directory: config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add staging/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "Image tag is already up to date"
+            exit 0
+          fi
+          git commit -m "Deploy task-manager-ui ${GITHUB_SHA::7} to staging"
+          git push 
